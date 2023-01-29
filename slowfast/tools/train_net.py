@@ -86,10 +86,10 @@ def train_epoch(
         misc.frozen_bn_stats(model)
     # Explicitly declare reduction to mean.
     loss_fun = losses.get_loss_func(cfg.MODEL.LOSS_FUNC)(reduction="mean")
-
     for cur_iter, (inputs, labels, index, time, meta, bboxes) in enumerate(
         train_loader
     ):
+        print("the labels rn: {}".format(labels))
         # Transfer the data to the current GPU device.
         if cfg.NUM_GPUS:
             if isinstance(inputs, (list,)):
@@ -147,6 +147,7 @@ def train_epoch(
                 preds = model(inputs, meta["boxes"])
             else:
                 # preds = model(inputs)
+                #hierarchical loss? predict pos/neg first, then severity
                 preds = model(inputs, bboxes)
                 print(preds)
         if cfg.TASK == "ssl" and cfg.MODEL.MODEL_NAME == "ContrastiveModel":
@@ -158,7 +159,28 @@ def train_epoch(
             loss = partial_loss
         else:
             # Compute the loss.
-            loss = loss_fun(preds, labels)
+            
+            """
+            loss0 = torch.mean((torch.zeros_like(labels, dtype=float) - labels.type(torch.cuda.FloatTensor))**2*preds[:,0]**2)
+            loss1 = torch.mean((torch.ones_like(labels, dtype=float) - labels.type(torch.cuda.FloatTensor))**2*preds[:,1]**2)
+            loss2 = torch.mean((torch.ones_like(labels, dtype=float)*2 - labels.type(torch.cuda.FloatTensor))**2*preds[:,2]**2)
+            loss3 = torch.mean((torch.ones_like(labels, dtype=float)*3 - labels.type(torch.cuda.FloatTensor))**2*preds[:,3]**2)
+            loss4 = torch.mean((torch.ones_like(labels, dtype=float)*4 - labels.type(torch.cuda.FloatTensor))**2*preds[:,4]**2)
+            loss5 = torch.mean((torch.ones_like(labels, dtype=float)*5 - labels.type(torch.cuda.FloatTensor))**2*preds[:,5]**2)
+            loss = torch.mean(loss0+loss1+loss2+loss3+loss4+loss5)
+            """
+            
+            bin_labels = torch.zeros_like(labels)
+            bin_labels[labels > 0] = 1
+            neg = preds[:,0].view(preds.shape[0],1)
+            pos = torch.sum(preds[:,1:],dim=1).view(preds.shape[0],1)  
+            bin_preds = torch.cat([neg,pos],-1)
+            bin_loss = loss_fun(bin_preds, bin_labels)
+            multi_loss = loss_fun(preds, labels)
+            w = 0.9
+            loss = w*bin_loss+(1-w)*multi_loss
+            
+            #loss = loss_fun(preds, labels)
 
         # check Nan Loss.
         misc.check_nan_losses(loss)
@@ -423,7 +445,7 @@ def eval_epoch(
                         cfg,
                         scaler if cfg.TRAIN.MIXED_PRECISION else None,
                     )
-
+            
             val_meter.update_predictions(preds, labels)
 
         val_meter.log_iter_stats(cur_epoch, cur_iter)
@@ -762,7 +784,6 @@ def train(cfg):
     
     avg_val = []
     for cur_epoch in range(start_epoch, cfg.SOLVER.MAX_EPOCH):
-
         if cur_epoch > 0 and cfg.DATA.LOADER_CHUNK_SIZE > 0:
             num_chunks = math.ceil(
                 cfg.DATA.LOADER_CHUNK_OVERALL_SIZE / cfg.DATA.LOADER_CHUNK_SIZE
@@ -804,10 +825,12 @@ def train(cfg):
 
         # Shuffle the dataset.
         loader.shuffle_dataset(train_loader, cur_epoch)
+
         if hasattr(train_loader.dataset, "_set_epoch_num"):
             train_loader.dataset._set_epoch_num(cur_epoch)
         # Train for one epoch.
         epoch_timer.epoch_tic()
+        
         train_epoch(
             train_loader,
             model,
