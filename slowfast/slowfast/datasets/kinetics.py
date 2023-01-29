@@ -391,8 +391,8 @@ class Kinetics(torch.utils.data.Dataset):
 
             if index not in self.kpts:
                 index_str = self._path_to_videos[index]
-                video_idx = index_str[40:-10] # ANDY, CHANGE THIS <--- 
-                # print("video idxxxxxx: ", video_idx)
+                video_idx = index_str[31:-10] # ANDY, CHANGE THIS <--- 
+                #print("video idxxxxxx: ", video_idx)
                 with open(f"./data/video{video_idx}_kpts", 'rb') as handle:
                     kpts = pickle.load(handle)
                     self.kpts[index] = kpts

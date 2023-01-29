@@ -10,7 +10,7 @@ from typing import List
 import torch
 from torch.utils.data._utils.collate import default_collate
 from torch.utils.data.distributed import DistributedSampler
-from torch.utils.data.sampler import RandomSampler, Sampler, WeightedRandomSampler
+from torch.utils.data.sampler import RandomSampler, Sampler
 
 from slowfast.datasets.multigrid_helper import ShortCycleBatchSampler
 
@@ -112,13 +112,6 @@ def construct_loader(cfg, split, is_precise_bn=False):
 
     # Construct the dataset
     dataset = build_dataset(dataset_name, cfg, split)
-    for idx in range(len(dataset._labels)):
-        if cfg.MODEL.NUM_CLASSES == 2 and dataset._labels[idx] > 0:
-            dataset._labels[idx] = 1
-        elif cfg.MODEL.NUM_CLASSES == 3 and dataset._labels[idx] > 0:
-            dataset._labels[idx] = int((dataset._labels[idx]-1)/5)+1
-        elif cfg.MODEL.NUM_CLASSES == 6 and dataset._labels[idx] > 0:
-            dataset._labels[idx] = int((dataset._labels[idx]-1)/2)+1
 
     if isinstance(dataset, torch.utils.data.IterableDataset):
         loader = torch.utils.data.DataLoader(
@@ -151,27 +144,7 @@ def construct_loader(cfg, split, is_precise_bn=False):
             )
         else:
             # Create a sampler for multi-process training
-            if split == "train":
-                # use weights to create sampler
-                """
-                dataset_labels = dataset._labels.copy()
-                for idx in range(len(dataset_labels)):
-                    if cfg.MODEL.NUM_CLASSES == 2 and dataset_labels[idx] > 0:
-                        dataset_labels[idx] = 1
-                    elif cfg.MODEL.NUM_CLASSES == 3 and dataset_labels[idx] > 0:
-                        dataset_labels[idx] = int((dataset_labels[idx]-1)/5)+1
-                    elif cfg.MODEL.NUM_CLASSES == 6 and dataset_labels[idx] > 0:
-                        dataset_labels[idx] = int((dataset_labels[idx]-1)/2)+1
-                """
-                class_sample_count = np.array([len(np.where(np.array(dataset._labels)==t)[0]) for t in list(range(cfg.MODEL.NUM_CLASSES))]) # create weights from num neg and num pos
-                weight = np.array(1. / class_sample_count)
-                weight = weight/weight.sum()
-                samples_weight = np.array([weight[t] for t in dataset._labels])
-                samples_weight = torch.from_numpy(samples_weight)
-                sampler = torch.utils.data.sampler.WeightedRandomSampler(samples_weight, len(samples_weight))
-            else:    
-                sampler = utils.create_sampler(dataset, shuffle, cfg)
-            
+            sampler = utils.create_sampler(dataset, shuffle, cfg)
             # Create a loader
             if cfg.DETECTION.ENABLE:
                 collate_func = detection_collate
@@ -181,6 +154,7 @@ def construct_loader(cfg, split, is_precise_bn=False):
                 )
             else:
                 collate_func = None
+
             loader = torch.utils.data.DataLoader(
                 dataset,
                 batch_size=batch_size,
@@ -192,7 +166,6 @@ def construct_loader(cfg, split, is_precise_bn=False):
                 collate_fn=collate_func,
                 worker_init_fn=utils.loader_worker_init_fn(dataset),
             )
-            
     return loader
 
 
@@ -220,7 +193,7 @@ def shuffle_dataset(loader, cur_epoch):
             else loader.sampler
         )
     assert isinstance(
-        sampler, (RandomSampler, DistributedSampler, WeightedRandomSampler)
+        sampler, (RandomSampler, DistributedSampler)
     ), "Sampler type '{}' not supported".format(type(sampler))
     # RandomSampler handles shuffling automatically
     if isinstance(sampler, DistributedSampler):
