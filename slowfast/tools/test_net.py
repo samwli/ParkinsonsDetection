@@ -18,7 +18,7 @@ from slowfast.datasets import loader
 from slowfast.models import build_model
 from slowfast.utils.env import pathmgr
 from slowfast.utils.meters import AVAMeter, TestMeter
-from sklearn.metrics import roc_auc_score
+from sklearn.metrics import roc_auc_score, confusion_matrix, accuracy_score, recall_score, balanced_accuracy_score
 import sklearn.metrics
 
 #from cam_framework import CamFramework 
@@ -328,37 +328,68 @@ def test(cfg):
         writer = None
     print(model)
     
-    if cfg.MODEL.NUM_CLASSES == 2:
+    if cfg.MODEL.NUM_CLASSES < 11:
         k = "top2_acc"
     else:
         k = "top5_acc"
+    
     # # Perform multi-view test on the entire dataset.
     test_meter = perform_test(test_loader, model, test_meter, cfg, writer)
-    print(test_meter.video_preds[:, 1])
-    nk = metrics.topks_predictions(test_meter.video_preds, test_meter.video_labels, (1, 2))
-    #auroc_score = roc_auc_score(test_meter.video_labels, test_meter.video_preds[:, 1])
-    fpr, tpr, thresholds = sklearn.metrics.roc_curve(y_true = test_meter.video_labels, y_score = test_meter.video_preds[:, 1], pos_label = 1)
-    auroc_score = sklearn.metrics.auc(fpr, tpr)
-    f1 = sklearn.metrics.f1_score(y_true=test_meter.video_labels, y_pred=nk[0])
-    precision, recall, thresholds = sklearn.metrics.precision_recall_curve(test_meter.video_labels, test_meter.video_preds[:, 1])
-    auc_precision_recall = sklearn.metrics.auc(recall, precision)
+    preds_ =  [np.argmax(item) for item in test_meter.video_preds.tolist()]
+    # one hot labels
+    """
+    y_hot = np.zeros((len(test_meter.video_labels), cfg.MODEL.NUM_CLASSES))
+    y_hot[np.arange(len(test_meter.video_labels)), test_meter.video_labels] = 1
+    print("yhot shapes are")
+    print(y_hot.shape, test_meter.video_labels.shape)
+    """
+    auroc_score = roc_auc_score(y_true=test_meter.video_labels, y_score=test_meter.video_preds, average='macro', multi_class = 'ovr')
+    #fpr, tpr, thresholds = sklearn.metrics.roc_curve(y_true = test_meter.video_labels, y_score = test_meter.video_preds[:, 1], pos_label = 1) 
+    #auroc_score = sklearn.metrics.auc(fpr, tpr)
+    f1_macro = sklearn.metrics.f1_score(y_true=test_meter.video_labels, y_pred=preds_, average='macro')
+    #precision, recall, thresholds = sklearn.metrics.precision_recall_curve(y_true = test_meter.video_labels, probas_pred = test_meter.video_preds[:, 1], pos_label = 1)
+    #auc_precision_recall = sklearn.metrics.auc(recall, precision)
+    matrix = confusion_matrix(test_meter.video_labels, preds_)
+    top1_macro = matrix.diagonal()/matrix.sum(axis=1)
+    print("top1_macro:")
+    print(top1_macro)
+    mse = (np.square(np.array(test_meter.video_labels) - np.array(preds_))).mean()
 
+    bin_labels = torch.zeros_like(test_meter.video_labels)
+    bin_labels[test_meter.video_labels > 0] = 1
+
+    neg = test_meter.video_preds[:,0].view(test_meter.video_preds.shape[0],1)
+    pos = torch.sum(test_meter.video_preds[:,1:],dim=1).view(test_meter.video_preds.shape[0],1)  
+    bin_preds = torch.cat([neg,pos],-1)
+
+    bin_preds_ = torch.zeros_like(torch.Tensor(preds_))
+    bin_preds_[torch.Tensor(preds_) > 0] = 1
+
+    fpr, tpr, thresholds = sklearn.metrics.roc_curve(y_true = bin_labels, y_score = bin_preds[:, 1], pos_label = 1) 
+    auroc_bin = sklearn.metrics.auc(fpr, tpr)
+    f1_bin = sklearn.metrics.f1_score(y_true=bin_labels, y_pred=bin_preds_)
+    bin_recall = recall_score(y_true=bin_labels, y_pred=bin_preds_)
+    precision, recall, thresholds = sklearn.metrics.precision_recall_curve(y_true = bin_labels, probas_pred = bin_preds[:, 1], pos_label = 1)
+    auc_precision_recall = sklearn.metrics.auc(recall, precision)
+    bin_acc = accuracy_score(bin_labels, bin_preds_)
     if writer is not None:
         writer.close()
     result_string = (
-        "_a{}{}{} Top1 Acc: {} Top5 Acc: {} MEM: {:.2f} dataset: {}{}, AUROC: {}, AUPRC: {}, F1: {}"
+        "dataset: {}{}, Top1 Acc: {}, top1_macro: {}, top1_macro_pos: {}, F1_macro: {}, auroc_macro_ovr: {}, mse: {}, bin_acc: {}, f1_bin: {}, bin_recall: {}, auroc_bin: {}, auprc_bin: {}"
         "".format(
-            out_str_prefix,
-            cfg.TEST.DATASET[0],
-            test_meter.stats["top1_acc"],
-            test_meter.stats["top1_acc"],
-            test_meter.stats[k],
-            misc.gpu_mem_usage(),
             cfg.TEST.DATASET[0],
             cfg.MODEL.NUM_CLASSES,
+            test_meter.stats["top1_acc"],
+            np.mean(top1_macro),
+            np.mean(np.array(top1_macro[1:])),
+            f1_macro,
             auroc_score,
-            auc_precision_recall,
-            f1
+            mse,
+            bin_acc,
+            f1_bin,
+            bin_recall,
+            auroc_bin,
+            auc_precision_recall
         )
     )
     logger.info("testing done: {}".format(result_string))
