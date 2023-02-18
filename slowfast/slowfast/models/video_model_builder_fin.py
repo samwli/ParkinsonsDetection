@@ -554,6 +554,7 @@ class ResNet(nn.Module):
         self.use_imagenet_resnet = True
         self.batch_size = cfg.TRAIN.BATCH_SIZE
         self.feature_size = 4096
+        #self.feature_size = 9216
         ########################################
 
         self.cls_head = None
@@ -632,6 +633,8 @@ class ResNet(nn.Module):
                 self.image_mlp = nn.Linear(2637824, self.num_classes)
             elif self.image_variant == "baseline":
                 self.image_mlp = nn.Linear(1605632, self.num_classes)
+            elif self.image_variant == "region_baseline":
+                self.image_mlp = nn.Linear(1032192, self.num_classes) 
             else:
                 #self.image_mlp = nn.Linear(1041408, self.num_classes)
                 #baseline+region
@@ -907,7 +910,17 @@ class ResNet(nn.Module):
             out = self.act(out)
             
             return out
-
+        
+        if self.image_variant == "region_baseline":
+            feature_maps = feature_maps.reshape((batch_size, -1))
+            
+            print("FINAL", feature_maps.shape)
+            out = self.image_mlp(feature_maps)
+            out = self.out_batchnorm(out)
+            out = self.act(out)
+            
+            return out
+            
         if self.image_variant == "baseline+region":
             #print(video_level_features.shape)
             #feature_maps = self.st_func["_".join(self.st_config)](feature_maps)

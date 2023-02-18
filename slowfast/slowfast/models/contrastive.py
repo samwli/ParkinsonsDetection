@@ -12,7 +12,7 @@ import torch.nn.functional as F
 import slowfast.models.losses as losses
 import slowfast.utils.distributed as du
 import slowfast.utils.logging as logging
-from slowfast.models.video_model_builder_fin import X3D, MViT, ResNet, SlowFast
+from slowfast.models.video_model_builder_ef import X3D, MViT, ResNet, SlowFast
 
 from .build import MODEL_REGISTRY
 

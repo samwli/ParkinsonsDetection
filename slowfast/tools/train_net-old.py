@@ -8,8 +8,6 @@ import numpy as np
 import pprint
 import torch
 from fvcore.nn.precise_bn import get_bn_modules, update_bn_stats
-import cv2
-import os
 
 import slowfast.models.losses as losses
 import slowfast.models.optimizer as optim
@@ -27,6 +25,11 @@ from slowfast.utils.meters import AVAMeter, EpochTimer, TrainMeter, ValMeter
 from slowfast.utils.multigrid import MultigridSchedule
 
 logger = logging.get_logger(__name__)
+
+if cfg.MODEL.NUM_CLASSES > 5:
+    k = 5
+else:
+    k = cfg.MODEL.NUM_CLASSES
 
 
 def train_epoch(
@@ -85,8 +88,6 @@ def train_epoch(
     # Explicitly declare reduction to mean.
     loss_fun = losses.get_loss_func(cfg.MODEL.LOSS_FUNC)(reduction="mean")
 
-    # print("Length of train: ", len(train_loader)) 
-
     for cur_iter, (inputs, labels, index, time, meta, bboxes) in enumerate(
         train_loader
     ):
@@ -100,6 +101,7 @@ def train_epoch(
                     else:
                         inputs[i] = inputs[i].cuda(non_blocking=True)
             else:
+                print("not list")
                 inputs = inputs.cuda(non_blocking=True)
             labels = labels.cuda()
             for key, val in meta.items():
@@ -116,35 +118,6 @@ def train_epoch(
             if isinstance(inputs[0], list)
             else inputs[0].size(0)
         )
-
-        # print("INPUT SHAPE: ", bboxes.shape)
-        # 1/0
-        # input_tensor = inputs[0]
-        # os.makedirs("debug_outputs")
-        # input_tensor = input_tensor.clone().detach().permute(0, 2, 1, 3, 4)
-        # print("input tensor shape: ", input_tensor.shape)
-        # vid_cnt = 0
-        # for video in range(input_tensor.shape[0]):
-        #     vid_writer = cv2.VideoWriter(f"./debug_outputs/beforenetwrok_vid{vid_cnt}.avi",cv2.VideoWriter_fourcc('M','J','P','G'), 20, (256,256))
-        #     # vid_writer = cv2.VideoWriter(f"./debug_outputs/input_vid{self.vid_cnt}.mp4",cv2.VideoWriter_fourcc(*'mp4v'), 20, (256,256))
-        #     curr_frame = 0
-        #     for frame in range(input_tensor.shape[1]):
-        #         print("wrote frame")
-        #         # print(input_tensor[video][frame].cpu().detach().numpy().transpose(1, 2, 0).shape)
-        #         # frame = np.zeros((256, 256, 3))
-        #         frame = input_tensor[video][frame].cpu().detach().numpy().transpose(1, 2, 0)
-                # frame = np.rint(frame*255)
-                # frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-        #         vid_writer.write(frame)
-        #         print(np.min(frame), np.max(frame))
-        #         cv2.imwrite(f"./debug_outputs/input_vid{vid_cnt}_frame{curr_frame}.png", frame)
-        #         # vid_writer.write(frame)
-        #         curr_frame += 1
-        #     vid_writer.release()
-        #     vid_cnt += 1
-        # 1/0
-
-
         # Update the learning rate.
         epoch_exact = cur_epoch + float(cur_iter) / data_size
         lr = optim.get_epoch_lr(epoch_exact, cfg)
@@ -175,9 +148,8 @@ def train_epoch(
                 preds = model(inputs, meta["boxes"])
             else:
                 # preds = model(inputs)
-                # print("predsssssss")
                 preds = model(inputs, bboxes)
-                # print("blehhhh")
+                print(preds)
         if cfg.TASK == "ssl" and cfg.MODEL.MODEL_NAME == "ContrastiveModel":
             labels = torch.zeros(
                 preds.size(0), dtype=labels.dtype, device=labels.device
@@ -187,8 +159,6 @@ def train_epoch(
             loss = partial_loss
         else:
             # Compute the loss.
-            # print("preds: ", preds)
-            # print("labels: ", labels)
             loss = loss_fun(preds, labels)
 
         # check Nan Loss.
@@ -244,7 +214,6 @@ def train_epoch(
                 )
 
         else:
-            # print("topppp errrrr")
             top1_err, top5_err = None, None
             if cfg.DATA.MULTI_LABEL:
                 # Gather all the predictions across all the devices.
@@ -253,7 +222,7 @@ def train_epoch(
                 loss = loss.item()
             else:
                 # Compute the errors.
-                num_topks_correct = metrics.topks_correct(preds, labels, (1, 2))
+                num_topks_correct = metrics.topks_correct(preds, labels, (1, k))
                 top1_err, top5_err = [
                     (1.0 - x / preds.size(0)) * 100.0 for x in num_topks_correct
                 ]
@@ -306,7 +275,7 @@ def train_epoch(
 
 @torch.no_grad()
 def eval_epoch(
-    val_loader, model, val_meter, cur_epoch, cfg, train_loader, writer
+    val_loader, model, val_meter, cur_epoch, cfg, train_loader, writer, optimizer
 ):
     """
     Evaluate the model on the val set.
@@ -324,14 +293,23 @@ def eval_epoch(
     # Evaluation mode enabled. The running stats would not be updated.
     model.eval()
     val_meter.iter_tic()
+    last_val_acc = 0
 
     for cur_iter, (inputs, labels, index, time, meta, bboxes) in enumerate(val_loader):
+        #print("input shape: ", inputs[0][0])
+        #print("VAL INPUTS: ", inputs)
+        print("VAL LABELS: ", labels)
+      
         if cfg.NUM_GPUS:
-            # Transferthe data to the current GPU device.
             if isinstance(inputs, (list,)):
                 for i in range(len(inputs)):
-                    inputs[i] = inputs[i].cuda(non_blocking=True)
+                    if isinstance(inputs[i], (list,)):
+                        for j in range(len(inputs[i])):
+                            inputs[i][j] = inputs[i][j].cuda(non_blocking=True)
+                    else:
+                        inputs[i] = inputs[i].cuda(non_blocking=True)
             else:
+                print("not list")
                 inputs = inputs.cuda(non_blocking=True)
             labels = labels.cuda()
             for key, val in meta.items():
@@ -351,6 +329,7 @@ def eval_epoch(
         val_meter.data_toc()
 
         if cfg.DETECTION.ENABLE:
+            print("DETECTION ENABLED")
             # Compute the predictions.
             preds = model(inputs, meta["boxes"])
             ori_boxes = meta["ori_boxes"]
@@ -372,6 +351,7 @@ def eval_epoch(
 
         else:
             if cfg.TASK == "ssl" and cfg.MODEL.MODEL_NAME == "ContrastiveModel":
+                print("CSSL")
                 if not cfg.CONTRASTIVE.KNN_ON:
                     return
                 train_labels = (
@@ -395,6 +375,7 @@ def eval_epoch(
                 )
                 preds = torch.sum(probs, 1)
             else:
+                print("forward pass")
                 preds = model(inputs, bboxes)
 
             if cfg.DATA.MULTI_LABEL:
@@ -402,7 +383,7 @@ def eval_epoch(
                     preds, labels = du.all_gather([preds, labels])
             else:
                 # Compute the errors.
-                num_topks_correct = metrics.topks_correct(preds, labels, (1, 2))
+                num_topks_correct = metrics.topks_correct(preds, labels, (1, k))
 
                 # Combine the errors across the GPUs.
                 top1_err, top5_err = [
@@ -429,6 +410,19 @@ def eval_epoch(
                     writer.add_scalars(
                         {"Val/Top1_err": top1_err, "Val/Top5_err": top5_err},
                         global_step=len(val_loader) * cur_epoch + cur_iter,
+                    )
+                    
+                if cfg.SOLVER.MAX_EPOCH - cur_epoch <= cfg.SOLVER.MAX_EPOCH - (10 * cfg.TRAIN.EVAL_PERIOD):
+                    last_val_acc = 100 - top1_err
+                    
+                if 100 - top1_err > 60:
+                    cu.save_checkpoint(
+                        cfg.OUTPUT_DIR,
+                        model,
+                        optimizer,
+                        cur_epoch,
+                        cfg,
+                        scaler if cfg.TRAIN.MIXED_PRECISION else None,
                     )
 
             val_meter.update_predictions(preds, labels)
@@ -457,6 +451,7 @@ def eval_epoch(
             )
 
     val_meter.reset()
+    return last_val_acc
 
 
 def contrastive_forward(model, cfg, inputs, index, time, epoch_exact, scaler):
@@ -611,11 +606,8 @@ def train(cfg):
     
     # if du.is_master_proc() and cfg.LOG_MODEL_INFO:
     #     misc.log_model_info(model, cfg, use_train_input=True)
-    
-    print("whuuuuuuuuts goooooooooood")
 
-    # print(model)
-    # print("Model summary is printed")
+    print(model)
     # Construct the optimizer.
     optimizer = optim.construct_optimizer(model, cfg)
     # Create a GradScaler for mixed precision training
@@ -628,7 +620,7 @@ def train(cfg):
 
 
         # FOR DEBUGGING HARDCODED
-        # last_checkpoint = None
+        last_checkpoint = None
 
 
         if last_checkpoint is not None:
@@ -640,7 +632,6 @@ def train(cfg):
                 scaler if cfg.TRAIN.MIXED_PRECISION else None,
             )
             start_epoch = checkpoint_epoch + 1
-
         elif "ssl_eval" in cfg.TASK:
             last_checkpoint = cu.get_last_checkpoint(cfg.OUTPUT_DIR, task="ssl")
             checkpoint_epoch = cu.load_checkpoint(
@@ -706,69 +697,52 @@ def train(cfg):
         writer = tb.TensorboardWriter(cfg)
     else:
         writer = None
+        
+    
     
     # freeze all the parameters
-    # for param in model.parameters():
-    #     param.requires_grad = False
+    if (cfg.NUM_GPUS > 1):
+        for param in model.module.s1.parameters():
+            param.requires_grad = False
+        for param in model.module.s2.parameters():
+            param.requires_grad = False
+        for param in model.module.s3.parameters():
+            param.requires_grad = False
+        for param in model.module.s4.parameters():
+            param.requires_grad = False
+        for param in model.module.s5.parameters():
+            param.requires_grad = False
 
-    # print("All parameters frozen")
-    # print(model.children())
-    # print(model.children())
-    # for param in model.vit_proj.parameters():
-    #     param.requires_grad = True
+        print("All parameters frozen")
+        print(model.children())
+        '''
+        for param in model.module.vit_proj.parameters():
+            param.requires_grad = True
+        for param in model.module.vit.parameters():
+            param.requires_grad = True
+            '''
+    else:
+        for param in model.s1.parameters():
+            param.requires_grad = False
+        for param in model.s2.parameters():
+            param.requires_grad = False
+        for param in model.s5.parameters():
+            param.requires_grad = False
 
-    # for param in model.vit.parameters():
-    #     param.requires_grad = True
-'''
-    for param in model.s1.parameters():
-        param.requires_grad = False
-    for param in model.s2.parameters():
-        param.requires_grad = False
-    for param in model.s3.parameters():
-        param.requires_grad = False
-    for param in model.s4.parameters():
-        param.requires_grad = False
-    for param in model.s5.parameters():
-        param.requires_grad = False
-
-    for param in model.resnet.parameters():
-        param.requires_grad_(False)
-        # param.requires_grad = False
-'''
-    #print(“All parameters frozen”)
-    print(model.children())
-
-    # for param in model.vit_proj.parameters():
-    #     param.requires_grad = True
-    # for param in model.vit.parameters():
-    #     param.requires_grad = True
-
-    # for param in model.region_attention.parameters():
-    #     param.requires_grad = True
+        print("All parameters frozen")
+        print(model.children())
+        '''
+        for param in model.vit_proj.parameters():
+            param.requires_grad = True
+        for param in model.vit.parameters():
+            param.requires_grad = True
+            '''
     
-    # for param in model.cls_head.parameters():
-    #     param.requires_grad = True
-    
-    # for param in model.dummy_head.parameters():
-        # param.requires_grad = True
-
-    # for param in model.heady.parameters():
-    #     param.requires_grad = True
-
-    # for param in model.parameters():
-    #     param.requires_grad = False
-
-    # if hasattr(model.head.projection, 'reset_parameters'):
-    #     print("final layer reset")
-    #     model.head.projection.reset_parameters()
-
-    # for param in model.head.projection.parameters():
-    #     param.requires_grad = True
-    
-    # Perform the training loop.
     logger.info("Start epoch: {}".format(start_epoch + 1))
 
     epoch_timer = EpochTimer()
+    
+    avg_val = []
     for cur_epoch in range(start_epoch, cfg.SOLVER.MAX_EPOCH):
 
         if cur_epoch > 0 and cfg.DATA.LOADER_CHUNK_SIZE > 0:
@@ -877,8 +851,9 @@ def train(cfg):
                 scaler if cfg.TRAIN.MIXED_PRECISION else None,
             )
         # Evaluate the model on validation set.
+        eval_out = None
         if is_eval_epoch:
-            eval_epoch(
+            eval_out = eval_epoch(
                 val_loader,
                 model,
                 val_meter,
@@ -886,7 +861,11 @@ def train(cfg):
                 cfg,
                 train_loader,
                 writer,
+                optimizer
             )
+        if eval_out is not None:
+            avg_val.append(eval_out)
+            
     if writer is not None:
         writer.close()
     result_string = "Top1 Acc: {:.2f} Top5 Acc: {:.2f} MEM: {:.2f}" "".format(
@@ -895,5 +874,5 @@ def train(cfg):
         misc.gpu_mem_usage(),
     )
     logger.info("training done: {}".format(result_string))
-
+    print(np.mean(avg_val))
     return result_string

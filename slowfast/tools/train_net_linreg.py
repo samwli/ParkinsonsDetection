@@ -159,27 +159,7 @@ def train_epoch(
             loss = partial_loss
         else:
             # Compute the loss.
-            
-            """
-            loss0 = torch.mean((torch.zeros_like(labels, dtype=float) - labels.type(torch.cuda.FloatTensor))**2*preds[:,0]**2)
-            loss1 = torch.mean((torch.ones_like(labels, dtype=float) - labels.type(torch.cuda.FloatTensor))**2*preds[:,1]**2)
-            loss2 = torch.mean((torch.ones_like(labels, dtype=float)*2 - labels.type(torch.cuda.FloatTensor))**2*preds[:,2]**2)
-            loss3 = torch.mean((torch.ones_like(labels, dtype=float)*3 - labels.type(torch.cuda.FloatTensor))**2*preds[:,3]**2)
-            loss4 = torch.mean((torch.ones_like(labels, dtype=float)*4 - labels.type(torch.cuda.FloatTensor))**2*preds[:,4]**2)
-            loss5 = torch.mean((torch.ones_like(labels, dtype=float)*5 - labels.type(torch.cuda.FloatTensor))**2*preds[:,5]**2)
-            loss = torch.mean(loss0+loss1+loss2+loss3+loss4+loss5)
-            """
-            
-            bin_labels = torch.zeros_like(labels)
-            bin_labels[labels > 0] = 1
-            neg = preds[:,0].view(preds.shape[0],1)
-            pos = torch.sum(preds[:,1:],dim=1).view(preds.shape[0],1)  
-            bin_preds = torch.cat([neg,pos],-1)
-            bin_loss = loss_fun(bin_preds, bin_labels)
-            multi_loss = loss_fun(preds, labels)
-            w = 0.9
-            loss = w*bin_loss+(1-w)*multi_loss
-            
+            loss = loss_fun(preds, labels.type(torch.cuda.FloatTensor))
             #loss = loss_fun(preds, labels)
 
         # check Nan Loss.
@@ -208,7 +188,7 @@ def train_epoch(
             # Update the parameters.
             scaler.step(optimizer)
         scaler.update()
-
+        """
         if cfg.MIXUP.ENABLE:
             _top_max_k_vals, top_max_k_inds = torch.topk(
                 labels, 2, dim=1, largest=True, sorted=True
@@ -243,7 +223,8 @@ def train_epoch(
                 loss = loss.item()
             else:
                 # Compute the errors.
-                num_topks_correct = metrics.topks_correct(preds, labels, (1, k))
+                
+                num_topks_correct = metrics.topks_correct(preds, labels, (1, 1))
                 top1_err, top5_err = [
                     (1.0 - x / preds.size(0)) * 100.0 for x in num_topks_correct
                 ]
@@ -259,6 +240,8 @@ def train_epoch(
                     top1_err.item(),
                     top5_err.item(),
                 )
+                
+                top1_err = top5_err = loss
 
             # Update and log stats.
             train_meter.update_stats(
@@ -288,10 +271,12 @@ def train_epoch(
         train_meter.log_iter_stats(cur_epoch, cur_iter)
         torch.cuda.synchronize()
         train_meter.iter_tic()
+        
     del inputs
     # Log epoch stats.
     train_meter.log_epoch_stats(cur_epoch)
     train_meter.reset()
+    """
 
 
 @torch.no_grad()
@@ -404,6 +389,7 @@ def eval_epoch(
                     preds, labels = du.all_gather([preds, labels])
             else:
                 # Compute the errors.
+                """
                 num_topks_correct = metrics.topks_correct(preds, labels, (1, k))
                 
                 # Combine the errors across the GPUs.
@@ -415,7 +401,8 @@ def eval_epoch(
 
                 # Copy the errors from GPU to CPU (sync point).
                 top1_err, top5_err = top1_err.item(), top5_err.item()
-
+                
+                top1_err = top5_err = loss_fun(preds, labels.type(torch.cuda.FloatTensor)).item()
                 val_meter.iter_toc()
                 # Update and log stats.
                 val_meter.update_stats(
@@ -445,7 +432,7 @@ def eval_epoch(
                         cfg,
                         scaler if cfg.TRAIN.MIXED_PRECISION else None,
                     )
-            
+
             val_meter.update_predictions(preds, labels)
 
         val_meter.log_iter_stats(cur_epoch, cur_iter)
@@ -471,7 +458,8 @@ def eval_epoch(
                 preds=all_preds, labels=all_labels, global_step=cur_epoch
             )
     val_meter.reset()
-    return last_val_acc
+    """
+    return 0
 
 
 def contrastive_forward(model, cfg, inputs, index, time, epoch_exact, scaler):

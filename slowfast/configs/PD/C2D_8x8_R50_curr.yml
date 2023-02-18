@@ -1,14 +1,15 @@
 TRAIN:
   ENABLE: True
   DATASET: kinetics
-  BATCH_SIZE: 128
-  EVAL_PERIOD: 10
-  CHECKPOINT_PERIOD: 100
+  BATCH_SIZE: 16
+  EVAL_PERIOD: 1000
+  CHECKPOINT_PERIOD: 1000
   AUTO_RESUME: True
-  #CHECKPOINT_FILE_PATH: configs/PD/c2d_baseline_8x8_IN_pretrain_400k.pkl
-  #CHECKPOINT_FILE_PATH: checkpoints/checkpoint_epoch_00300.pyth
+  #CHECKPOINT_FILE_PATH: mse6/VidRegAttAttCheckpointsT2_video+region/checkpoints/checkpoint_epoch_00200.pyth
+  #CHECKPOINT_FILE_PATH: VidRegAttAttCheckpointsT2_msc_vidreg/checkpoints/checkpoint_epoch_00580.pyth
   #CHECKPOINT_INFLATE: True
-  CHECKPOINT_TYPE: caffe2
+  #CHECKPOINT_FILE_PATH: configs/PD/resnet50_pretrained_on_msceleb.pth.tar
+  #CHECKPOINT_TYPE: caffe2
 DATA:
   NUM_FRAMES: 8
   SAMPLING_RATE: 8
@@ -16,8 +17,8 @@ DATA:
   TRAIN_CROP_SIZE: 224
   TEST_CROP_SIZE: 256
   INPUT_CHANNEL_NUM: [3]
-  PATH_TO_DATA_DIR: a8_data/
-  TARGET_FPS: 20
+  PATH_TO_DATA_DIR: data
+  TARGET_FPS: 24
   RANDOM_FLIP: False
 RESNET:
   ZERO_INIT_FINAL_BN: True
@@ -37,22 +38,22 @@ BN:
 SOLVER:
   BASE_LR: 0.1
   LR_POLICY: cosine
-  MAX_EPOCH: 100
+  MAX_EPOCH: 580
   MOMENTUM: 0.9
-  WEIGHT_DECAY: 1e-4
-  WARMUP_EPOCHS: 17.0
+  WEIGHT_DECAY: 1e-2
+  WARMUP_EPOCHS: 34.0
   WARMUP_START_LR: 0.01
   OPTIMIZING_METHOD: sgd
 MODEL:
-  NUM_CLASSES: 8
+  NUM_CLASSES: 6
   ARCH: c2d
   MODEL_NAME: ResNet
   LOSS_FUNC: cross_entropy
   DROPOUT_RATE: 0.5
 TEST:
-  ENABLE: False
+  ENABLE: True
   DATASET: kinetics
-  BATCH_SIZE: 256
+  BATCH_SIZE: 16
   NUM_SPATIAL_CROPS: 1
   NUM_ENSEMBLE_VIEWS: 1
 DATA_LOADER:
@@ -65,11 +66,11 @@ TENSORBOARD:
     MODEL_WEIGHTS: True
     ACTIVATIONS: True
     INPUT_VIDEO: True
-    LAYER_LIST: ['s2/pathway0_res0','pathway0_pool','s3/pathway0_res0','s3/pathway0_res3','s4/pathway0_res0','s4/pathway0_res5','s5/pathway0_res0','s5/pathway0_res2','head/pathway0_avgpool']
+    LAYER_LIST: ['resnet/module/layer4']
     GRAD_CAM:
       ENABLE: True
-      LAYER_LIST: ['s4/pathway0_res2/branch2']
+      LAYER_LIST: ['resnet/module/layer4/2/conv3']
 NUM_GPUS: 1
 NUM_SHARDS: 1
 RNG_SEED: 0
-OUTPUT_DIR: .
+OUTPUT_DIR: "VidRegAttAttCheckpointsT2"

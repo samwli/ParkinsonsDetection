@@ -1,3 +1,5 @@
+TENSORBOARD:
+  ENABLE: True
 TRAIN:
   ENABLE: True
   DATASET: kinetics

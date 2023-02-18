@@ -20,11 +20,11 @@ import torch.utils.data.distributed
 import slowfast.utils.weight_init_helper as init_helper
 from slowfast.models.attention import MultiScaleBlock
 from slowfast.models.batchnorm_helper import get_norm
-#from slowfast.models.efficientnet import EfficientFace, efficient_face
-#from slowfast.models.recorder import RecorderMeter
-#from slowfast.models.modulator import Modulator
+from slowfast.models.efficientnet import EfficientFace, efficient_face
+from slowfast.models.recorder import RecorderMeter
+from slowfast.models.modulator import Modulator
 
-#from slowfast.models.resnet import ResNet, resnet50
+from slowfast.models.resnet import ResNet, resnet50
 from slowfast.models.stem_helper import PatchEmbed
 from slowfast.models.utils import (
     round_width,
@@ -541,7 +541,7 @@ class ResNet(nn.Module):
         self.num_classes = cfg.MODEL.NUM_CLASSES
         self.use_max_pool = True
         self.use_s5 = False
-        self.roi_align_size = (2, 2)
+        self.roi_align_size = (3, 3)
         self.use_softmax = True
         self.vit_embed_dim = 768
         self.use_vit = False
@@ -553,8 +553,7 @@ class ResNet(nn.Module):
         self.image_variant = "video+region"
         self.use_imagenet_resnet = True
         self.batch_size = cfg.TRAIN.BATCH_SIZE
-        #self.feature_size = 9216
-        self.feature_size = 4096
+        self.feature_size = 4176
         ########################################
 
         self.cls_head = None
@@ -572,13 +571,13 @@ class ResNet(nn.Module):
         self.resnet = None
         self.img_preprocess = None
         
-        self.proj = nn.Linear(25088, self.feature_size)
+        self.proj = nn.Linear(11368, self.feature_size)
         if self.image_variant is not None:
             self.resnet = torch.hub.load('pytorch/vision:v0.10.0', 'resnet50', pretrained=True)
             self.resnet = torch.nn.DataParallel(self.resnet).cuda()
             #self.resnet = resnet50()
-            
-            backbone = torch.load("/home/swli2/slowfast/flr_r50_vgg_face.pth")
+            '''
+            backbone = torch.load("/home/andyz3/PD/FSPD/slowfast/configs/PD/flr_r50_vgg_face.pth")
             for key in list(backbone['state_dict']):
                 newKeyName = key.replace(".base_net", "")
                 backbone['state_dict'][newKeyName] = backbone['state_dict'].pop(key)
@@ -596,11 +595,11 @@ class ResNet(nn.Module):
             self.resnet.fc = nn.Linear(1024, 8)
             self.resnet = torch.nn.DataParallel(self.resnet).cuda()
             #checkpoint = torch.load("/home/andyz3/PD/FSPD/slowfast/configs/PD/resnet50_pretrained_on_msceleb.pth.tar")
-            checkpoint = torch.load("/home/andyz3/PD/FSPD/slowfast/configs/PD/EfficientFace_Trained_on_AffectNet8.pth.tar")
+            checkpoint = torch.load("/home/swli2/slowfast/EfficientFace_Trained_on_AffectNet8.pth.tar")
             dic = checkpoint['state_dict']
             self.resnet.load_state_dict(dic)
             self.resnet.module.fc = nn.Linear(1024, 7).cuda()
-            '''
+            
             '''
             self.resnet.fc = nn.Linear(1024, 12666)
             self.resnet = torch.nn.DataParallel(self.resnet).cuda()
@@ -636,11 +635,11 @@ class ResNet(nn.Module):
             elif self.image_variant == "baseline":
                 self.image_mlp = nn.Linear(1605632, self.num_classes)
             else:
-                #self.image_mlp = nn.Linear(1041408, self.num_classes)
+                #self.image_mlp = nn.Linear(2842, self.num_classes)
                 #baseline+region
                 #self.image_mlp = nn.Linear(1614848, self.num_classes) 
-                #self.image_mlp = nn.Sequential(nn.Linear(10752, 2408), nn.ReLU(), nn.Linear(2408, self.num_classes))
-                self.image_mlp = nn.Sequential(nn.Linear(self.feature_size, 4816), nn.ReLU(), nn.Linear(4816, 2408), nn.ReLU(), nn.Linear(2408, self.num_classes))
+                self.image_mlp = nn.Sequential(nn.Linear(4176, 2408), nn.ReLU(), nn.Linear(2408, self.num_classes))
+                #self.image_mlp = nn.Sequential(nn.Linear(self.feature_size, 4816), nn.ReLU(), nn.Linear(4816, 2408), nn.ReLU(), nn.Linear(2408, self.num_classes))
 
         if self.use_mlp:
             self.cls_head = nn.Sequential(nn.Linear(9216, 4608), nn.ReLU(), nn.Linear(4608, 2408), nn.ReLU(), nn.Linear(2408, self.num_classes))
@@ -659,8 +658,8 @@ class ResNet(nn.Module):
             self.region_pool = nn.AvgPool2d((1, 2), stride=(1, 2))
         
         if self.st_config is not None:
-            self.temporal_attention = Attention(self.feature_size, num_heads=2) if "temporal_attention" in self.st_config else None
-            self.region_attention = Attention(self.feature_size, num_heads=2) if "region_attention" in self.st_config else None
+            self.temporal_attention = Attention(self.feature_size, num_heads=4) if "temporal_attention" in self.st_config else None
+            self.region_attention = Attention(self.feature_size, num_heads=1) if "region_attention" in self.st_config else None
             self.cls_token = nn.Parameter(torch.zeros(1, 1, self.feature_size))
             # trunc_normal_(self.cls_token, std=.02)
 
@@ -856,7 +855,7 @@ class ResNet(nn.Module):
             for i in x:
                 x = torch.squeeze(i)
                 x = self.img_preprocess(x)
-
+                '''
                 x = self.resnet.module.conv1(x)
                 x = self.resnet.module.bn1(x)
                 x = self.resnet.module.maxpool(x)
@@ -864,6 +863,12 @@ class ResNet(nn.Module):
                 x = self.resnet.module.layer2(x)
                 x = self.resnet.module.layer3(x)
                 #x = self.resnet.module.layer4(x)
+                '''
+                x = self.resnet.module.conv1(x)
+                x = self.resnet.module.maxpool(x)
+                x = self.resnet.module.modulator(self.resnet.module.stage2(x)) + self.resnet.module.local(x)
+                x = self.resnet.module.stage3(x)
+                x = self.resnet.module.stage4(x)
                 x = torch.unsqueeze(x, 2)
                 print(x.shape)
                 y.append(x)
@@ -1018,8 +1023,6 @@ class ResNet(nn.Module):
             x[0] = x[0].permute(0, 2, 1, 3, 4)
             x_shape = x[0].shape
             video_level_features = x[0].reshape(batch_size, x_shape[1], 1, x_shape[2]*x_shape[3]*x_shape[4])
-            video_level_features = self.region_pool(video_level_features)
-            video_level_features = self.region_pool(video_level_features)
             video_level_features = self.region_pool(video_level_features)
             print(video_level_features.shape)
             video_level_features = self.proj(video_level_features)

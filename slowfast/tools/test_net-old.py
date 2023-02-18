@@ -18,6 +18,7 @@ from slowfast.models import build_model
 from slowfast.utils.env import pathmgr
 from slowfast.utils.meters import AVAMeter, TestMeter
 
+#from cam_framework import CamFramework 
 
 from pytorch_grad_cam import GradCAM, ScoreCAM, GradCAMPlusPlus, AblationCAM, XGradCAM, EigenCAM, FullGrad
 from pytorch_grad_cam.utils.model_targets import ClassifierOutputTarget
@@ -49,8 +50,8 @@ def perform_test(test_loader, model, test_meter, cfg, writer=None):
             to writer Tensorboard log.
     """
     # Enable eval mode.
+    #model.eval()
     model.eval()
-    # model.train()
 
     # model = CamFramework(model)
 
@@ -72,6 +73,8 @@ def perform_test(test_loader, model, test_meter, cfg, writer=None):
             video_idx = video_idx.cuda()
 
             print("bboxes: ", bboxes.shape)
+            #print("inputs: ", inputs.shape)
+            print("labels: ", labels.shape)
             bboxes = bboxes.cuda()
             for key, val in meta.items():
                 if isinstance(val, (list,)):
@@ -319,7 +322,12 @@ def test(cfg):
         writer = tb.TensorboardWriter(cfg)
     else:
         writer = None
-
+    print(model)
+    
+    if cfg.MODEL.NUM_CLASSES == 2:
+        k = "top2_acc"
+    else:
+        k = "top5_acc"
     # # Perform multi-view test on the entire dataset.
     test_meter = perform_test(test_loader, model, test_meter, cfg, writer)
     if writer is not None:
@@ -331,12 +339,16 @@ def test(cfg):
             cfg.TEST.DATASET[0],
             test_meter.stats["top1_acc"],
             test_meter.stats["top1_acc"],
-            test_meter.stats["top2_acc"],
+            test_meter.stats[k],
             misc.gpu_mem_usage(),
             cfg.TEST.DATASET[0],
             cfg.MODEL.NUM_CLASSES,
         )
     )
     logger.info("testing done: {}".format(result_string))
+    
+    with open('./experiments/results.txt', 'a+') as f:
+        f.write(" Test accuracy: ")
+        f.write(result_string + "\n")
 
     return result_string

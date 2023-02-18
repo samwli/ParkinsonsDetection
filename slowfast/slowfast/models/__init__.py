@@ -4,7 +4,7 @@
 from .build import MODEL_REGISTRY, build_model  # noqa
 from .contrastive import ContrastiveModel  # noqa
 from .custom_video_model_builder import *  # noqa
-from .video_model_builder_fin import ResNet, SlowFast  # noqa
+from .video_model_builder_ef import ResNet, SlowFast  # noqa
 
 try:
     from .ptv_model_builder import (
